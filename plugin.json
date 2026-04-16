@@ -1,0 +1,25 @@
+{
+  "name": "siyuan-plugin-wordcounter",
+  "author": "xiaobu",
+  "url": "",
+  "version": "2.1.0",
+  "minAppVersion": "2.8.10",
+  "backends": ["all"],
+  "frontends": [
+    "desktop",
+    "desktop-window",
+    "browser-desktop"
+  ],
+  "displayName": {
+    "en_US": "Word Counter",
+    "zh_CN": "码字统计"
+  },
+  "description": {
+    "en_US": "Real-time typing speed and daily word count tracker, similar to Zuojia Zhushou",
+    "zh_CN": "实时码字速率与今日字数统计，类似作家助手的码字小方块"
+  },
+  "readme": {
+    "en_US": "README.md",
+    "zh_CN": "README.md"
+  }
+}
