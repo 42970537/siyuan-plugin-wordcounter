@@ -1,7 +1,7 @@
 {
   "name": "siyuan-plugin-wordcounter",
   "author": "xiaobu",
-  "url": "",
+  "url": "https://github.com/42970537/siyuan-plugin-wordcounter",
   "version": "2.1.0",
   "minAppVersion": "2.8.10",
   "backends": ["all"],
@@ -10,16 +10,25 @@
     "desktop-window",
     "browser-desktop"
   ],
+  "keywords": ["码字", "字数统计", "写作", "打字速率", "码字精灵", "word-counter", "typing-speed", "writing-tool"],
   "displayName": {
     "en_US": "Word Counter",
     "zh_CN": "码字统计"
   },
   "description": {
-    "en_US": "Real-time typing speed and daily word count tracker, similar to Zuojia Zhushou",
-    "zh_CN": "实时码字速率与今日字数统计，类似作家助手的码字小方块"
+    "en_US": "Real-time typing speed tracker with a cute mascot companion. Features live WPM, daily word count, draggable panel, and speed-based animations.",
+    "zh_CN": "实时码字速率追踪 + 码字精灵伴侣。支持实时速率、今日字数、可拖拽面板、速率主题动画与精灵互动。"
   },
   "readme": {
     "en_US": "README.md",
     "zh_CN": "README.md"
+  },
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "42970537",
+    "custom": [
+      "https://github.com/42970537/siyuan-plugin-wordcounter#-赞助支持"
+    ]
   }
 }
