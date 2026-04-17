@@ -2,7 +2,7 @@
   "name": "siyuan-plugin-wordcounter",
   "author": "xiaobu",
   "url": "https://github.com/42970537/siyuan-plugin-wordcounter",
-  "version": "2.1.0",
+  "version": "3.10.0",
   "minAppVersion": "2.8.10",
   "backends": ["all"],
   "frontends": [
@@ -16,8 +16,8 @@
     "zh_CN": "码字统计"
   },
   "description": {
-    "en_US": "Real-time typing speed tracker with a cute mascot companion. Features live WPM, daily word count, draggable panel, and speed-based animations.",
-    "zh_CN": "实时码字速率追踪 + 码字精灵伴侣。支持实时速率、今日字数、可拖拽面板、速率主题动画与精灵互动。"
+    "en_US": "Word count and writing analytics with a cute mascot companion. Features daily words, average speed, draggable panel, and mascot animations.",
+    "zh_CN": "码字统计 + 码字精灵伴侣。今日字数统计、平均速率（字数/写作时间）、可拖拽面板、精灵互动动画。"
   },
   "readme": {
     "en_US": "README.md",
