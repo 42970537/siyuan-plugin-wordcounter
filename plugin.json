@@ -10,17 +10,18 @@
     "desktop-window",
     "browser-desktop"
   ],
+  "disabledInPublish": false,
   "keywords": ["码字", "字数统计", "写作", "打字速率", "码字精灵", "word-counter", "typing-speed", "writing-tool"],
   "displayName": {
-    "en_US": "Word Counter",
+    "default": "Word Counter",
     "zh_CN": "码字统计"
   },
   "description": {
-    "en_US": "Word count and writing analytics with a cute mascot companion. Features daily words, average speed, draggable panel, and mascot animations.",
+    "default": "Word count and writing analytics with a cute mascot companion. Features daily words, average speed, draggable panel, and mascot animations.",
     "zh_CN": "码字统计 + 码字精灵伴侣。今日字数统计、平均速率（字数/写作时间）、可拖拽面板、精灵互动动画。"
   },
   "readme": {
-    "en_US": "README.md",
+    "default": "README.md",
     "zh_CN": "README.md"
   },
   "funding": {
