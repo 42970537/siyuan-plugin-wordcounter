@@ -5,7 +5,7 @@
 **你的码字伙伴，让每一次敲击都有温度**
 
 [![思源笔记](https://img.shields.io/badge/思源笔记-v2.8.10+-blue)](https://b3log.org/siyuan/)
-[![版本](https://img.shields.io/badge/版本-v3.10.0-green)]()
+[![版本](https://img.shields.io/badge/版本-v4.1.0-green)]()
 [![许可](https://img.shields.io/badge/许可-MIT-orange)]()
 
 一个类似「作家助手」的思源笔记码字统计插件 —— 今日字数统计、平均速率追踪，还带一个会陪你码字的 **码字精灵** 🧚
