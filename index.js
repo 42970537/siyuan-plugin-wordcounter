@@ -1739,6 +1739,8 @@ class WordCounterPlugin extends siyuan.Plugin {
         }
       }
     });
+    // 启动 MutationObserver 作为备用监听
+    this._observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
   // 直接监听编辑器 input（v3.6.1 修复：不再等待2秒）
@@ -1805,10 +1807,13 @@ class WordCounterPlugin extends siyuan.Plugin {
     // 清理文档切换监听（_setupDocChangeListener 注册的）
     if (this._docChangeWSHandler) this.eventBus.off("ws-main", this._docChangeWSHandler);
     if (this._docChangeTabHandler) this.eventBus.off("click-tab", this._docChangeTabHandler);
-    document.removeEventListener("keydown", this._boundHandleInput);
+    // 正确移除编辑器 input 事件监听
+    document.querySelectorAll(".protyle-content").forEach(el => {
+      el.removeEventListener("input", this._boundHandleInput);
+      el._wc_inputBound = false;
+    });
     if (this._observer) { this._observer.disconnect(); this._observer = null; }
     if (this._dragCleanup) { this._dragCleanup(); this._dragCleanup = null; }
-    document.querySelectorAll(".protyle-content").forEach(el => { el._wc_inputBound = false; });
   }
 
   // ============ 输入处理（滑动窗口驱动） ============
