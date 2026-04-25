@@ -1167,4 +1167,83 @@
 .wc-settings-save:hover { filter: brightness(1.1); transform: translateY(-1px); }
 .wc-settings-save:active { transform: translateY(0); }
 
+/* ========== 可拖动最小化浮层面板 ========== */
+.wc-mini-panel {
+  position: fixed;
+  z-index: 9999;
+  background: var(--wc-bg);
+  border: 1px solid var(--wc-border);
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.wc-mini-panel:hover {
+  border-color: var(--wc-primary);
+  box-shadow: 0 4px 24px rgba(91,127,255,0.15);
+}
+
+/* 插件名称标签 */
+.wc-mini-plugin-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wc-text-3);
+  letter-spacing: 0.3px;
+  line-height: 1;
+  margin-bottom: 1px;
+}
+
+/* 数据行 */
+.wc-mini-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.wc-mini-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.4s;
+}
+.wc-mini-speed {
+  font-size: 16px;
+  font-weight: 800;
+  transition: color 0.4s;
+}
+.wc-mini-sep {
+  color: var(--wc-text-3);
+  font-weight: 300;
+  font-size: 14px;
+}
+.wc-mini-total {
+  color: var(--wc-wordcount-color);
+  font-size: 16px;
+  font-weight: 800;
+}
+.wc-mini-unit {
+  font-size: 12px;
+  color: var(--wc-text-3);
+  font-weight: 500;
+}
+
+/* 深色主题适配 */
+.wc-mini-panel.wc-theme-dark {
+  --wc-wordcount-color: #c4b5fd;
+}
+.wc-mini-panel.wc-theme-eye {
+  --wc-wordcount-color: #7a5c2a;
+}
+
+
 

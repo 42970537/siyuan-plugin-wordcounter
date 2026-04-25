@@ -1,8 +1,9 @@
 /**
- * 码字统计插件 - siyuan-plugin-wordcounter v3.10.0
- * v3.10:  新增目标完成动画和通知（达成字数/时长目标时触发庆祝动画+气泡提示）
- * v3.9:   删除实时速率UI，优化排版：今日字数居中 + 平均速率（字数/写作时间）
- *         精灵动画/气泡/背景都匹配平均速率状态
+ * 码字统计插件 - siyuan-plugin-wordcounter v4.1.0
+ * v4.1:  回归累积模式（所有文档共用统计）
+ *        - 最小化改为可拖动浮层面板，标注插件名称
+ *        - 峰值改为平均速率的峰值（带单位显示）
+ *        - 速率在发呆时持续 EMA 衰减，不再瞬间清零
  */
 const siyuan = require("siyuan");
 
@@ -112,7 +113,18 @@ function countWordsCoding(text) {
 }
 
 function getEditorText() {
-  const editor = document.querySelector(".protyle-content");
+  // 优先取当前激活 tab 下的编辑器内容
+  const activeTab = document.querySelector(".layout-tab-bar .item--focus");
+  let editor = null;
+  if (activeTab) {
+    // 在当前激活 tab 的 DOM 区域里找编辑器
+    const tabPanel = activeTab.closest(".layout-tab-container") || activeTab.parentElement;
+    if (tabPanel) {
+      editor = tabPanel.querySelector(".protyle-content");
+    }
+  }
+  // fallback：取任意编辑器
+  if (!editor) editor = document.querySelector(".protyle-content");
   if (!editor) return "";
   return editor.textContent || "";
 }
@@ -185,8 +197,10 @@ function showToast(msg, duration = 4000) {
 // 单位换算辅助：内部存 字/分，显示时按需换算
 function getSpeedDisplay(speedPerMin, unit) {
   if (speedPerMin <= 0) return "—";
-  if (unit === "perHour") return Math.round(speedPerMin * 60);
-  return Math.round(speedPerMin);
+  const MAX_REASONABLE = 500; // 字/分上限（人类打字极限约 300 字/分）
+  const capped = Math.min(speedPerMin, MAX_REASONABLE);
+  if (unit === "perHour") return Math.round(capped * 60);
+  return Math.round(capped);
 }
 function getSpeedUnit(unit) {
   if (unit === "perHour") return "字/时";
@@ -423,6 +437,29 @@ class WordCounterPlugin extends siyuan.Plugin {
     this.settingsVisible = false;
     this.sampleTimer = null;
     this.dailyData = {};
+    this.lastWordCount = 0;        // 基准字数（编辑器加载时校准）
+    this.lastSampleTime = 0;
+    this.currentSpeed = 0;         // 实时速率（EMA平滑）
+    this.lastInputTime = 0;
+    this.isIdle = false;
+    this._boundHandleInput = null;
+    this.panelTimer = null;
+    this._prevTotalWords = -1;
+    this._dragging = false;
+    this._dragOffset = { x: 0, y: 0 };
+    this._lastPanelPos = null;       // 主面板位置
+    this._miniLastPos = null;        // mini 面板位置（独立记忆）
+    this._interactTimer = null;
+    this._activityTimer = null;
+    this._writingSessionStart = 0;
+    this._lastMascotState = "idle";
+    this._mascotStateSince = 0;
+    // 可拖动最小化浮层面板（独立于 Siyuan 状态栏）
+    this._miniPanelEl = null;
+    this._miniDraggable = false;
+    this._miniDragOffset = { x: 0, y: 0 };
+    this._miniDragStart = null;
+    this._miniDragMoved = false;
     this.settings = {
       targetWordsEnabled: false,
       targetWords: 3000,
@@ -434,44 +471,31 @@ class WordCounterPlugin extends siyuan.Plugin {
       panelTheme: "light",       // 面板主题: light/dark/eye
       firstUseShown: false,      // 是否已展示过启动气泡
     };
-    this.lastWordCount = 0;
-    this.lastSampleTime = 0;
-    this.currentSpeed = 0;
-    this.lastInputTime = 0;
-    this.isIdle = false;
-    this._boundHandleInput = null;
-    this.panelTimer = null;
-    this._prevTotalWords = -1;
-    this._dragging = false;
-    this._dragOffset = { x: 0, y: 0 };
-    this._lastPanelPos = null;
-    this._interactTimer = null;
-    this._activityTimer = null;
-    this._writingSessionStart = 0;
-    this._lastMascotState = "idle";
-    this._mascotStateSince = 0;
 
     // ========== 目标完成追踪 ==========
-    this._wordsGoalReached = false;  // 字数目标是否已完成（防止重复触发）
-    this._timeGoalReached = false;   // 时长目标是否已完成（防止重复触发）
+    this._wordsGoalReached = false;
+    this._timeGoalReached = false;
 
-    // ========== 滑动窗口（v3.5 规范算法）==========
-    this._speedWindow = [];           // {words: number, time: number}[] — 主速率滑动窗口（5分钟）
-    this._windowTotalWords = 0;       // 窗口内总字数
-    this._lastInputTime = 0;          // 最后一次有效输入时间（Δ > 0）
-    this._prevDisplayedSpeed = 0;    // 上次显示的主速率（EMA 平滑用）
-    this._uiUpdateScheduled = false; // RAF 是否已调度
+    // ========== 滑动窗口 ==========
+    this._speedWindow = [];
+    this._windowTotalWords = 0;
+    this._prevDisplayedSpeed = 0;
+    this._uiUpdateScheduled = false;
 
-    // ========== 瞬时速录（简化版，仅用于爆发检测）==========
-    this._instantWindow = [];         // {words: number, time: number}[] — 爆发检测窗口（1秒）
-    this._instantTotalWords = 0;      // 爆发窗口内总字数
-    this._lastBurstTime = 0;         // 上次爆发弹跳时间（防止连续触发）
+    // ========== 爆发检测 ==========
+    this._instantWindow = [];
+    this._instantTotalWords = 0;
+    this._lastBurstTime = 0;
   }
 
   async onload() {
     this._boundHandleInput = () => this.handleInput();
     await this.loadData();
     await this.loadSettings();
+
+    // 立即校准基准字数：用当前编辑器已有内容作为基准，避免已有文本被误算为"今日新增"
+    this.lastWordCount = this.countByMode(getEditorText());
+
     this.initStatusBar();
     // 应用面板主题到状态栏（initStatusBar 后才有效）
     applyPanelTheme(this.statusEl, this.settings.panelTheme);
@@ -485,7 +509,7 @@ class WordCounterPlugin extends siyuan.Plugin {
       }, 1200);
       this.settings.firstUseShown = true;
       this.saveSettings();
-      } else {
+    } else {
       // 非首次启动，轻提示位置
       setTimeout(() => {
         showToast("📌 码字统计已就绪");
@@ -497,20 +521,34 @@ class WordCounterPlugin extends siyuan.Plugin {
     this.saveDataSync();
     if (this.sampleTimer) { clearInterval(this.sampleTimer); this.sampleTimer = null; }
     if (this.panelTimer) { clearInterval(this.panelTimer); this.panelTimer = null; }
+    if (this._docPollTimer) { clearInterval(this._docPollTimer); this._docPollTimer = null; }
     if (this._interactTimer) { clearTimeout(this._interactTimer); this._interactTimer = null; }
     if (this._activityTimer) { clearInterval(this._activityTimer); this._activityTimer = null; }
     this.unbindEvents();
     this.hidePanel();
     this.hideSettings();
+    // 清理 mini 浮层面板，防止插件重载后残留
+    if (this._miniDragCleanup) { this._miniDragCleanup(); this._miniDragCleanup = null; }
+    if (this.statusEl && this.statusEl.parentNode) {
+      this.statusEl.parentNode.removeChild(this.statusEl);
+      this.statusEl = null;
+    }
   }
 
   onLayoutReady() {}
 
   // ============ 数据持久化 ============
+  /**
+   * 数据结构（累积模式，全局共享）：
+   * {
+   *   "2026-04-17": { totalWords, peakAvgSpeed, writingTime, idleTime, startTime },
+   *   lastDate: "2026-04-17"
+   * }
+   */
   async loadData() {
     const today = getTodayStr();
     const defaultData = {
-      [today]: { totalWords: 0, peakSpeed: 0, writingTime: 0, idleTime: 0, startTime: null },
+      [today]: { totalWords: 0, peakAvgSpeed: 0, writingTime: 0, idleTime: 0, startTime: null },
       lastDate: today,
     };
     try {
@@ -519,6 +557,8 @@ class WordCounterPlugin extends siyuan.Plugin {
         this.dailyData = saved;
         if (!this.dailyData[today]) {
           this.dailyData[today] = defaultData[today];
+          this.dailyData.lastDate = today;
+        } else {
           this.dailyData.lastDate = today;
         }
       } else {
@@ -550,15 +590,12 @@ class WordCounterPlugin extends siyuan.Plugin {
           mode: "writing",
           mascot: "cat",
           speedUnit: "perMin",
-          panelTheme: "blue",
+          panelTheme: "light",
           firstUseShown: false,
           ...saved,
-          // 确保布尔字段有明确默认值
           targetWordsEnabled: !!saved.targetWordsEnabled,
           targetMinutesEnabled: !!saved.targetMinutesEnabled,
-          // 确保 speedUnit 合法
           speedUnit: (saved.speedUnit === "perHour") ? "perHour" : "perMin",
-          // 确保 panelTheme 合法
           panelTheme: ["light", "dark", "eye"].includes(saved.panelTheme) ? saved.panelTheme : "light",
         };
       }
@@ -575,7 +612,7 @@ class WordCounterPlugin extends siyuan.Plugin {
   getTodayData() {
     const today = getTodayStr();
     if (!this.dailyData[today]) {
-      this.dailyData[today] = { totalWords: 0, peakSpeed: 0, writingTime: 0, idleTime: 0, startTime: null };
+      this.dailyData[today] = { totalWords: 0, peakAvgSpeed: 0, writingTime: 0, idleTime: 0, startTime: null };
       this.dailyData.lastDate = today;
     }
     return this.dailyData[today];
@@ -585,40 +622,128 @@ class WordCounterPlugin extends siyuan.Plugin {
     return this.settings.mode === "coding" ? countWordsCoding(text) : countWordsWriting(text);
   }
 
-  // ============ 状态栏 ============
+  // ============ 最小化浮层面板（可拖动） ============
   initStatusBar() {
+    // 防重复：如果已存在则先移除
+    const existing = document.querySelector(".wc-mini-panel");
+    if (existing) existing.remove();
+
+    // 创建可拖动浮层面板（替代 Siyuan 状态栏）
     this.statusEl = document.createElement("div");
-    this.statusEl.className = "wordcounter-status wc-theme-" + (this.settings.panelTheme || "light");
-    this.statusEl.innerHTML = this.renderStatusBarHTML(0, 0);
-    this.statusEl.title = "码字统计 - 点击查看详情";
-    this.addStatusBar({ element: this.statusEl, position: "right" });
+    this.statusEl.className = "wc-mini-panel wc-theme-" + (this.settings.panelTheme || "light");
+    this.statusEl.innerHTML = this.renderMiniPanelHTML(0, 0);
+    this.statusEl.title = "码字统计 - 点击展开详情";
+    document.body.appendChild(this.statusEl);
+    this.positionMiniPanel();
+    this.bindMiniPanelDrag();
     this.statusEl.addEventListener("click", (e) => {
       e.stopPropagation();
+      // 只有非拖动状态才触发展开/收起
+      if (this._miniDragMoved) {
+        this._miniDragMoved = false;
+        return;
+      }
       this.togglePanel();
     });
   }
 
-  renderStatusBarHTML(speed, totalWords) {
-    const info = getSpeedLevel(speed);
+  renderMiniPanelHTML(avgSpeed, totalWords) {
+    const todayData = this.getTodayData();
+    const displaySpeed = todayData.writingTime >= 30 ? avgSpeed : 0;
+    const info = getSpeedLevel(displaySpeed);
     const unit = this.settings.speedUnit || "perMin";
-    const speedText = getSpeedDisplay(speed, unit);
+    const speedText = getSpeedDisplay(displaySpeed, unit);
+    const speedUnit = unit === "perHour" ? "字/时" : "字/分";
     const ml = MODE_LABELS[this.settings.mode];
     return `
-      <span class="wc-status-inner">
-        <span class="wc-speed-dot" style="background:${info.color}"></span>
-        <span class="wc-speed-value" style="color:${info.color}">${speedText}</span>
-        <span class="wc-sep">|</span>
-        <span class="wc-total-value">${formatNumber(totalWords)}</span>
-        <span class="wc-total-unit">${ml.wordUnit}</span>
-      </span>
+      <div class="wc-mini-plugin-name">📝 码字统计</div>
+      <div class="wc-mini-inner">
+        <span class="wc-mini-dot" style="background:${info.color}"></span>
+        <span class="wc-mini-speed" style="color:${info.color}">${speedText}</span>
+        <span class="wc-mini-unit">${speedUnit}</span>
+        <span class="wc-mini-sep">|</span>
+        <span class="wc-mini-total">${formatNumber(totalWords)}</span>
+        <span class="wc-mini-unit">${ml.wordUnit}</span>
+      </div>
     `;
+  }
+
+  positionMiniPanel() {
+    if (!this.statusEl) return;
+    if (this._miniLastPos) {
+      this.statusEl.style.left = this._miniLastPos.left + "px";
+      this.statusEl.style.top = this._miniLastPos.top + "px";
+      this.statusEl.style.right = "auto";
+      this.statusEl.style.bottom = "auto";
+      return;
+    }
+    // 默认右下角
+    this.statusEl.style.right = "24px";
+    this.statusEl.style.bottom = "80px";
+    this.statusEl.style.left = "auto";
+    this.statusEl.style.top = "auto";
+  }
+
+  bindMiniPanelDrag() {
+    const el = this.statusEl;
+    if (!el) return;
+
+    // 防重复：先清理旧的 document 级监听
+    if (this._miniDragCleanup) { this._miniDragCleanup(); }
+
+    el.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      this._miniDragStart = { x: e.clientX, y: e.clientY };
+      this._miniDraggable = true;
+      const rect = el.getBoundingClientRect();
+      this._miniDragOffset.x = e.clientX - rect.left;
+      this._miniDragOffset.y = e.clientY - rect.top;
+      el.style.cursor = "grabbing";
+    });
+
+    const onMove = (e) => {
+      if (!this._miniDraggable) return;
+      const x = e.clientX - this._miniDragOffset.x;
+      const y = e.clientY - this._miniDragOffset.y;
+      el.style.left = Math.max(0, x) + "px";
+      el.style.top = Math.max(0, y) + "px";
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      // 拖动超过阈值就标记为非点击
+      if (this._miniDragStart) {
+        const dx = e.clientX - this._miniDragStart.x;
+        const dy = e.clientY - this._miniDragStart.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 5) {
+          this._miniDragMoved = true;
+        }
+      }
+    };
+
+    const onUp = () => {
+      if (!this._miniDraggable) return;
+      this._miniDraggable = false;
+      el.style.cursor = "pointer";
+      this._miniDragStart = null;
+      // 记录 mini 面板位置（独立于主面板）
+      const rect = el.getBoundingClientRect();
+      this._miniLastPos = { left: rect.left, top: rect.top };
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+
+    this._miniDragCleanup = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
   }
 
   updateStatusBar() {
     if (!this.statusEl) return;
     const todayData = this.getTodayData();
-    const speed = this.isIdle ? 0 : this.currentSpeed;
-    this.statusEl.innerHTML = this.renderStatusBarHTML(speed, todayData.totalWords);
+    const avgSpeed = this._getCalibratedAvgSpeed();
+    this.statusEl.innerHTML = this.renderMiniPanelHTML(avgSpeed, todayData.totalWords);
   }
 
   // ============ 浮动面板 ============
@@ -630,10 +755,16 @@ class WordCounterPlugin extends siyuan.Plugin {
   showPanel() {
     if (this.panelEl) this.hidePanel();
 
+    // 隐藏 mini 面板
+    if (this.statusEl) this.statusEl.style.display = "none";
+
     this.panelEl = document.createElement("div");
     this.panelEl.className = "wordcounter-panel wc-theme-" + (this.settings.panelTheme || "light");
     this.panelEl.innerHTML = this.renderPanelHTML();
     this.panelEl.style.display = "block";
+
+    // 重置 bump 动画追踪，避免关闭期间的数据变化触发无效动画
+    this._prevTotalWords = this.getTodayData().totalWords;
 
     this.positionPanel();
     document.body.appendChild(this.panelEl);
@@ -659,6 +790,12 @@ class WordCounterPlugin extends siyuan.Plugin {
     this.stopPanelUpdate();
     this.stopActivityCycle();
     this._dragging = false;
+    // 清理 document 上的拖拽监听，防止重复绑定
+    if (this._dragCleanup) { this._dragCleanup(); this._dragCleanup = null; }
+    // 恢复 mini 面板
+    if (this.statusEl) {
+      this.statusEl.style.display = "";
+    }
   }
 
   positionPanel() {
@@ -721,10 +858,12 @@ class WordCounterPlugin extends siyuan.Plugin {
     const wMins = Math.floor(todayData.writingTime / 60);
     const wTimeStr = formatMinutes(todayData.writingTime);
     const iTimeStr = formatMinutes(todayData.idleTime);
+    const totalWords = todayData.totalWords;
+    const peakSpeed = todayData.peakAvgSpeed || 0;
 
     // 目标进度
     const wordsPercent = (this.settings.targetWordsEnabled && this.settings.targetWords > 0)
-      ? Math.min(100, (todayData.totalWords / this.settings.targetWords) * 100) : 0;
+      ? Math.min(100, (totalWords / this.settings.targetWords) * 100) : 0;
     const timePercent = (this.settings.targetMinutesEnabled && this.settings.targetMinutes > 0)
       ? Math.min(100, (wMins / this.settings.targetMinutes) * 100) : 0;
 
@@ -764,7 +903,7 @@ class WordCounterPlugin extends siyuan.Plugin {
           <div class="wc-hero-data">
             <!-- 今日字数（居中大字） -->
             <div class="wc-hero-col-words">
-              <span class="wc-hero-num wc-words-num" id="wc-hero-words-num">${formatNumber(todayData.totalWords)}</span>
+              <span class="wc-hero-num wc-words-num" id="wc-hero-words-num">${formatNumber(totalWords)}</span>
               <span class="wc-hero-label">${ml.wordUnit}</span>
             </div>
 
@@ -786,7 +925,7 @@ class WordCounterPlugin extends siyuan.Plugin {
           </div>
           <div class="wc-goal-info">
             <span class="wc-goal-label">${ml.wordUnit}数目标</span>
-            <span class="wc-goal-value">${todayData.totalWords}<span class="wc-goal-sep">/</span>${formatNumber(this.settings.targetWords)}</span>
+            <span class="wc-goal-value">${totalWords}<span class="wc-goal-sep">/</span>${formatNumber(this.settings.targetWords)}</span>
           </div>
           <div class="wc-goal-bar">
             <div class="wc-goal-fill wc-goal-fill-words ${wordsPercent >= 100 ? 'wc-goal-done' : ''}" style="width:${wordsPercent}%"></div>
@@ -811,7 +950,7 @@ class WordCounterPlugin extends siyuan.Plugin {
       <!-- 指标卡片 3列 -->
       <div class="wc-panel-metrics">
         <div class="wc-metric-card wc-metric-peak">
-          <span class="wc-metric-num">${todayData.peakSpeed}</span>
+          <span class="wc-metric-num">${getSpeedDisplay(peakSpeed, this.settings.speedUnit)}</span>
           <span class="wc-metric-label">峰值</span>
         </div>
         <div class="wc-metric-card wc-metric-write">
@@ -929,7 +1068,7 @@ class WordCounterPlugin extends siyuan.Plugin {
     this.stopPanelUpdate();
     this.panelTimer = setInterval(() => {
       if (this.panelEl && this.panelVisible) this.updatePanelContent();
-    }, 500); // 面板刷新从1000ms→500ms，更快
+    }, 500);
   }
 
   updatePanelContent() {
@@ -989,9 +1128,11 @@ class WordCounterPlugin extends siyuan.Plugin {
     }
 
     // ---- 目标进度 ----
-    const wMins = Math.floor(todayData.writingTime / 60);
+    const docWTime = todayData.writingTime;
+    const docTotalWords = todayData.totalWords;
+    const wMins = Math.floor(docWTime / 60);
     const wordsPercent = (this.settings.targetWordsEnabled && this.settings.targetWords > 0)
-      ? Math.min(100, (todayData.totalWords / this.settings.targetWords) * 100) : 0;
+      ? Math.min(100, (docTotalWords / this.settings.targetWords) * 100) : 0;
     const timePercent = (this.settings.targetMinutesEnabled && this.settings.targetMinutes > 0)
       ? Math.min(100, (wMins / this.settings.targetMinutes) * 100) : 0;
 
@@ -1001,7 +1142,7 @@ class WordCounterPlugin extends siyuan.Plugin {
       const fill = goalRows[0].querySelector(".wc-goal-fill-words");
       const pct = goalRows[0].querySelector(".wc-goal-pct");
       goalRows[0].classList.toggle("wc-goal-disabled", !this.settings.targetWordsEnabled);
-      if (val) val.innerHTML = `${todayData.totalWords}<span class="wc-goal-sep">/</span>${formatNumber(this.settings.targetWords)}`;
+      if (val) val.innerHTML = `${docTotalWords}<span class="wc-goal-sep">/</span>${formatNumber(this.settings.targetWords)}`;
       if (this.settings.targetWordsEnabled && this.settings.targetWords > 0) {
         if (fill) { fill.style.width = wordsPercent + "%"; fill.classList.toggle("wc-goal-done", wordsPercent >= 100); }
         if (pct) pct.textContent = Math.round(wordsPercent) + "%";
@@ -1015,7 +1156,7 @@ class WordCounterPlugin extends siyuan.Plugin {
       const fill = goalRows[1].querySelector(".wc-goal-fill-time");
       const pct = goalRows[1].querySelector(".wc-goal-pct");
       goalRows[1].classList.toggle("wc-goal-disabled", !this.settings.targetMinutesEnabled);
-      if (val) val.innerHTML = `${formatMinutes(todayData.writingTime)}<span class="wc-goal-sep">/</span>${this.settings.targetMinutes}m`;
+      if (val) val.innerHTML = `${formatMinutes(docWTime)}<span class="wc-goal-sep">/</span>${this.settings.targetMinutes}m`;
       if (this.settings.targetMinutesEnabled && this.settings.targetMinutes > 0) {
         if (fill) { fill.style.width = timePercent + "%"; fill.classList.toggle("wc-goal-done", timePercent >= 100); }
         if (pct) pct.textContent = Math.round(timePercent) + "%";
@@ -1026,10 +1167,12 @@ class WordCounterPlugin extends siyuan.Plugin {
     }
 
     // ---- 指标卡片 ----
+    const docITime = todayData.idleTime;
+    const docPeakSpeed = todayData.peakAvgSpeed || 0;
     const metricNums = this.panelEl.querySelectorAll(".wc-metric-num");
-    const wTimeStr = formatMinutes(todayData.writingTime);
-    const iTimeStr = formatMinutes(todayData.idleTime);
-    if (metricNums[0]) metricNums[0].textContent = todayData.peakSpeed;
+    const wTimeStr = formatMinutes(docWTime);
+    const iTimeStr = formatMinutes(docITime);
+    if (metricNums[0]) metricNums[0].textContent = getSpeedDisplay(docPeakSpeed, this.settings.speedUnit);
     if (metricNums[1]) metricNums[1].textContent = wTimeStr;
     if (metricNums[2]) metricNums[2].textContent = iTimeStr;
 
@@ -1388,6 +1531,8 @@ class WordCounterPlugin extends siyuan.Plugin {
       this.hideSettings();
 
       if (this.panelVisible && this.panelEl) {
+        // 先清理旧的拖拽监听，防止 document 级事件累积
+        if (this._dragCleanup) { this._dragCleanup(); this._dragCleanup = null; }
         this.panelEl.innerHTML = this.renderPanelHTML();
         // renderPanelHTML() 中的 HTML 内容已使用 CSS 变量，无需额外操作
         this.bindResetBtn();
@@ -1541,14 +1686,26 @@ class WordCounterPlugin extends siyuan.Plugin {
 
   async resetToday() {
     const today = getTodayStr();
-    this.dailyData[today] = { totalWords: 0, peakSpeed: 0, writingTime: 0, idleTime: 0, startTime: null };
+    // 新结构：累积模式，全局共享
+    this.dailyData[today] = { totalWords: 0, peakAvgSpeed: 0, writingTime: 0, idleTime: 0, startTime: null };
+    this.dailyData.lastDate = today;
+    // 重置运行时状态
     this.currentSpeed = 0;
     this.lastWordCount = this.countByMode(getEditorText());
     this._prevTotalWords = -1;
-    this._wordsGoalReached = false;  // 重置目标完成状态
+    this._wordsGoalReached = false;
     this._timeGoalReached = false;
+    this._speedWindow = [];
+    this._windowTotalWords = 0;
+    this._instantWindow = [];
+    this._instantTotalWords = 0;
+    this.isIdle = false;
     await this.saveData();
     this.updateStatusBar();
+    if (this.panelVisible) {
+      this.hidePanel();
+      this.showPanel();
+    }
     siyuan.showMessage("今日数据已重置", 3000);
   }
 
@@ -1607,11 +1764,47 @@ class WordCounterPlugin extends siyuan.Plugin {
     setTimeout(attach, 100);
     setTimeout(attach, 500);
     setTimeout(attach, 2000);
+
+    // 监听文档切换，重新校准基准
+    this._setupDocChangeListener();
+  }
+
+  // 监听文档切换，切换文档时重置字数基准，确保统计不串
+  _setupDocChangeListener() {
+    this._docChangeWSHandler = () => {
+      setTimeout(() => {
+        this._resyncWordCount();
+      }, 400);
+    };
+    this._docChangeTabHandler = () => {
+      setTimeout(() => {
+        this._resyncWordCount();
+      }, 600);
+    };
+    this.eventBus.on("ws-main", this._docChangeWSHandler);
+    this.eventBus.on("click-tab", this._docChangeTabHandler);
+  }
+
+  // 重置字数基准：切换文档后，用当前文档的字数作为新基准
+  _resyncWordCount() {
+    const text = getEditorText();
+    const count = this.countByMode(text);
+    if (count !== this.lastWordCount) {
+      this.lastWordCount = count;
+      // 同时更新 prevTotalWords 避免跳变
+      const todayData = this.getTodayData();
+      if (this._prevTotalWords < 0) {
+        this._prevTotalWords = todayData.totalWords;
+      }
+    }
   }
 
   unbindEvents() {
     const events = ["ws-main", "click-editorcontent"];
     for (const evt of events) this.eventBus.off(evt, this._boundHandleInput);
+    // 清理文档切换监听（_setupDocChangeListener 注册的）
+    if (this._docChangeWSHandler) this.eventBus.off("ws-main", this._docChangeWSHandler);
+    if (this._docChangeTabHandler) this.eventBus.off("click-tab", this._docChangeTabHandler);
     document.removeEventListener("keydown", this._boundHandleInput);
     if (this._observer) { this._observer.disconnect(); this._observer = null; }
     if (this._dragCleanup) { this._dragCleanup(); this._dragCleanup = null; }
@@ -1634,7 +1827,7 @@ class WordCounterPlugin extends siyuan.Plugin {
         this._writingSessionStart = now;
       }
 
-      // 累计今日总字数
+      // 累计今日总字数（全局累积）
       this.getTodayData().totalWords += delta;
 
       // 维护主速率滑动窗口（5 分钟）
@@ -1671,12 +1864,6 @@ class WordCounterPlugin extends siyuan.Plugin {
     const now = Date.now();
     this.lastSampleTime = now;
     this.lastInputTime = now;
-    this.lastWordCount = this.countByMode(getEditorText()) || 0;
-    this._prevDisplayedSpeed = 0;
-
-    // 初始化滑动窗口（清空）
-    this._speedWindow = [];
-    this._windowTotalWords = 0;
 
     // 200ms 采样：窗口清理 + 时间统计
     this.sampleTimer = setInterval(() => this.collectData(), SAMPLE_INTERVAL);
@@ -1690,8 +1877,7 @@ class WordCounterPlugin extends siyuan.Plugin {
   /**
    * collectData（200ms 定时调用）
    * - 仅负责：窗口过期清理 + 发呆检测 + 时间统计 + 峰值记录
-   * - 不修改 lastWordCount（那是 handleInput 的职责）
-   * - 不更新 totalWords（那是 handleInput 的职责）
+   * - 速率在发呆时持续 EMA 衰减（不瞬间清零）
    */
   collectData() {
     const now = Date.now();
@@ -1700,30 +1886,30 @@ class WordCounterPlugin extends siyuan.Plugin {
     if (deltaMs <= 0) return;
     this.lastSampleTime = now;
 
-    // 发呆检测（规范：超过 I 则清零队列）
+    // 发呆检测（超过 5 分钟无输入）
     if (now - this._lastInputTime > IDLE_TIMEOUT) {
       if (!this.isIdle) {
         this.isIdle = true;
         // 结算上一个会话的写作时间
         if (this._writingSessionStart > 0) {
+          const todayData = this.getTodayData();
           const duration = Math.max(0, (this._lastInputTime - this._writingSessionStart) / 1000);
-          if (duration > 0) this.getTodayData().writingTime += duration;
+          if (duration > 0) todayData.writingTime += duration;
         }
-        // 清零所有速率状态
+        // 清空滑动窗口（不再清 currentSpeed，让 EMA 自然衰减）
         this._windowTotalWords = 0;
         this._speedWindow = [];
         this._instantTotalWords = 0;
         this._instantWindow = [];
-        this.currentSpeed = 0;
-        this._prevDisplayedSpeed = 0;
-        this._scheduleUIUpdate();
       }
+      // 发呆时长计入今日
       this.getTodayData().idleTime += deltaSec;
     } else {
       if (this.isIdle) {
         this.isIdle = false;
         this._writingSessionStart = now;
       }
+      // 写作时长计入今日
       this.getTodayData().writingTime += deltaSec;
 
       // 清理主窗口过期数据
@@ -1736,11 +1922,13 @@ class WordCounterPlugin extends siyuan.Plugin {
       }
     }
 
-    // 峰值记录
-    if (this.currentSpeed > 0) {
-      const rounded = Math.round(this.currentSpeed);
-      const td = this.getTodayData();
-      if (rounded > td.peakSpeed) td.peakSpeed = rounded;
+    // 峰值记录：追踪平均速率的峰值（总字数/写作时长 的历史最大值）
+    const todayData = this.getTodayData();
+    if (todayData.writingTime > 30) {
+      const avgSpeed = this._getCalibratedAvgSpeed();
+      if (avgSpeed > (todayData.peakAvgSpeed || 0)) {
+        todayData.peakAvgSpeed = avgSpeed;
+      }
     }
 
     if (Math.random() < 0.05) this.saveData();

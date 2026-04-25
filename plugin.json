@@ -2,7 +2,7 @@
   "name": "siyuan-plugin-wordcounter",
   "author": "xiaobu",
   "url": "https://github.com/42970537/siyuan-plugin-wordcounter",
-  "version": "3.10.0",
+  "version": "4.1.0",
   "minAppVersion": "2.8.10",
   "backends": ["all"],
   "frontends": [
