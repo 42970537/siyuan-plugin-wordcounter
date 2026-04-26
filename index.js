@@ -519,7 +519,7 @@ class WordCounterPlugin extends siyuan.Plugin {
 
   onunload() {
     this.saveDataSync();
-    if (this.sampleTimer) { clearInterval(this.sampleTimer); this.sampleTimer = null; }
+    this.stopSampling();
     if (this.panelTimer) { clearInterval(this.panelTimer); this.panelTimer = null; }
     if (this._docPollTimer) { clearInterval(this._docPollTimer); this._docPollTimer = null; }
     if (this._interactTimer) { clearTimeout(this._interactTimer); this._interactTimer = null; }
@@ -2108,9 +2108,6 @@ class WordCounterPlugin extends siyuan.Plugin {
    * 获取原始平均速率（总字数 / 写作时长分钟数）
    * 这是用户看到的"平均速率"——专注打字期间的平均输出能力
    */
-  _getRawAvgSpeed() {
-    return this._getCalibratedAvgSpeed();
-  }
 }
 
 module.exports = WordCounterPlugin;
