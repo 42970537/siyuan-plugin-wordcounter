@@ -2,34 +2,24 @@
   "name": "siyuan-plugin-wordcounter",
   "author": "xiaobu",
   "url": "https://github.com/42970537/siyuan-plugin-wordcounter",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "minAppVersion": "2.8.10",
   "backends": ["all"],
-  "frontends": [
-    "desktop",
-    "desktop-window",
-    "browser-desktop"
-  ],
-  "disabledInPublish": false,
-  "keywords": ["码字", "字数统计", "写作", "打字速率", "码字精灵", "word-counter", "typing-speed", "writing-tool"],
+  "frontends": ["desktop", "desktop-window", "browser-desktop"],
   "displayName": {
     "default": "Word Counter",
     "zh_CN": "码字统计"
   },
   "description": {
-    "default": "Word count and writing analytics with a cute mascot companion. Features daily words, average speed, draggable panel, and mascot animations.",
-    "zh_CN": "码字统计 + 码字精灵伴侣。今日字数统计、平均速率（字数/写作时间）、可拖拽面板、精灵互动动画。"
+    "default": "Word count and writing analytics with a cute mascot companion.",
+    "zh_CN": "码字统计 + 码字精灵伴侣。"
   },
   "readme": {
     "default": "README.md",
     "zh_CN": "README.md"
   },
+  "keywords": ["码字", "字数统计", "写作", "word-counter"],
   "funding": {
-    "openCollective": "",
-    "patreon": "",
-    "github": "42970537",
-    "custom": [
-      "https://github.com/42970537/siyuan-plugin-wordcounter#-赞助支持"
-    ]
+    "github": "42970537"
   }
 }
